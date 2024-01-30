@@ -1,0 +1,774 @@
+---
+title: "Project"
+output: pdf_document
+date: "2023-12-22"
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(lubridate)
+library(naniar)
+library(dplyr)
+library(plotly)
+library(xts)
+library(forecast)
+library(vars)
+library(tseries)
+```
+
+Hourly Minneapolis-St Paul, MN traffic volume for westbound I-94.
+Includes weather and holiday features from 2012 to 2018. Link to
+dataset:
+<https://archive.ics.uci.edu/dataset/492/metro+interstate+traffic+volume>
+
+The **goal** of this analysis is to forecast traffic volume.
+
+**Variables information:**
+
+-   holiday Categorical US National holidays plus regional holidays,
+    Minnesota State Fair
+
+-   temp Numeric Average temp in kelvin
+
+-   rain_1h Numeric Amount in mm of rain that occurred in the hour
+
+-   snow_1h Numeric Amount in mm of snow that occurred in the hour
+
+-   clouds_all Numeric Percentage of cloud cover
+
+-   weather_main Categorical Short textual description of the current
+    weather
+
+-   weather_description Categorical Longer textual description of the
+    current weather
+
+-   date_time DateTime Hour of the data collected in local CST time
+
+-   traffic_volume Numeric Hourly I-94 ATR 301 reported westbound
+    traffic volume
+
+```{r}
+path <- "D:/University/time_series/Project"
+setwd(path) 
+metro_raw <- read.csv("Metro_Interstate_Traffic_Volume.csv") 
+head(metro_raw)
+```
+
+## Data Preprocessing. Part I
+
+**Data cleaning** steps:
+
+1.  Check the tidiness of the data (observations on rows and variables
+    on the columns)
+
+2.  Remove duplicates
+
+3.  Each observation should have a unique ID.,
+
+4.  Check homogeneity (observation in the same column should have the
+    same format)
+
+5.  Check data types
+
+    1.  **Tidiness**. As we can see the dataset is ***tidy***.
+    2.  Let's check for **duplicates**:
+
+```{r}
+dup_idx <- duplicated(metro_raw)
+
+dup_rows <- metro_raw[dup_idx, ]
+dup_rows
+```
+
+The duplicates should be removed:
+
+```{r}
+metro <- metro_raw[!dup_idx, ]
+metro
+```
+
+3.  **Unique ID.** The date_time column can be used as a unique ID for
+    each observation. R also automatically adjusts the index column.
+
+4.  **Homogeneity**. The observations in each column have the same
+    format. However, the temperature feature format would be changed
+    from Kelvin to Celcius for simplicity and interpretability.
+
+    ```{r}
+    metro$temp <- metro$temp - 273.15
+    ```
+
+5.  **Data types.** The date_time column is represented as a character
+    string. It should be converted to the datetime type. In the dataset,
+    the date_time column is represented by using ISO 8601.
+
+```{r}
+metro$date_time <- ymd_hms(metro$date_time)
+metro
+```
+
+**Missing values**
+
+*The best thing to do with missing values is not to have any.*
+
+**Gertrude Mary Cox**
+
+So first stuff to do is to check if we have any missing values.
+
+```{r}
+anyNA(metro)
+```
+
+```{r}
+miss_var_summary(metro)
+```
+
+### Transform dataset into time series object
+
+The techniques for time series forecasting can not be used if
+
+1.  the data has duplicates within timestamps
+
+2.  and if the time interval between data points is different.
+
+Before transforming the dataset into a time series object, these aspects
+should be checked.
+
+**Checking duplicates within timestamps:**
+
+```{r}
+anyDuplicated(metro$date_time)
+```
+
+To solve this issue, the decision is to delete duplicates. Also another
+method was each duplicated timestamp change to average of previous and
+next value, repeat it until there are no more duplicates. However, due
+to this method the complexity and dimensionality of data would increase
+and also it would be chalenging to make interval between data points
+equal in this case.
+
+```{r}
+metro <- metro %>%
+  distinct(date_time, .keep_all = TRUE)
+anyDuplicated(metro$date_time)
+```
+
+**Check the time interval between data points:**
+
+```{r}
+print(min(diff(metro$date_time)))
+print(max(diff(metro$date_time)))
+```
+
+The maximum interval is enormous; let's look at the plot.
+
+```{r}
+gg_traffic <- ggplot(metro, aes(x = date_time, y = traffic_volume)) +
+  geom_line()
+
+ggplotly(gg_traffic)
+```
+
+The diapason interval of unrecorded data should be found.
+
+```{r}
+max_diff_index <- which.max(diff(metro$date_time))
+
+metro$date_time[c(max_diff_index, max_diff_index + 1)]
+```
+
+The periodic behavior can be seen in the previous graph. A better
+understanding of the data and its patterns can help us understand
+possible solutions to the given problem. Consequently, let's explore the
+data analysis part.
+
+## Exploring Data Analysis
+
+*One picture is worth of a thousand words*
+
+```{r}
+summary(metro)
+```
+
+### **Numerical values**
+
+The dataset has too much data to be displayed in understandable way. Due
+to this fact, the library plotly has been used. That package helps to
+create interactive plots, that can be zoom in.
+
+```{r}
+gg_traffic <- ggplot(metro, aes(x = date_time, y = traffic_volume)) +
+  geom_line()
+
+ggplotly(gg_traffic)
+```
+
+After zooming in and seeing the first days, the existence of seasonality
+can be assumed. There is no trend. Also the dataset has period of
+unrecorded data.
+
+```{r}
+#plot.xts(ts_metro, main = "Traffic Volume over Time", ylab = "Traffic Volume", col = "blue")
+#lines(ts_metro$temp, col = "red")
+```
+
+According to the observations, the repetitive pattern that occurred in
+the data has daily nature. Let's create a column with hour.
+
+```{r}
+metro$hour <- hour(metro$date_time)
+
+ggplot(metro, aes(x=traffic_volume))+
+  geom_histogram()+
+  facet_wrap(~ hour)
+```
+
+By using boxplot arranged by hours, the daily pattern can be seen.
+
+```{r}
+ggplot(metro, aes(x = as.factor(hour), y = traffic_volume)) +
+  geom_boxplot()
+```
+
+Let\`s create a plot for temperature.
+
+```{r}
+gg_temp <- ggplot(metro, aes(x = date_time, y = temp)) +
+  geom_line()
+ggplotly(gg_temp)
+```
+
+For temperature, the situation is the same. There is no trend, but there
+is cycle behaviour. Also it easy to see two outliers. It's better to
+deal with them now.
+
+```{r}
+metro$temp[metro$temp < -200] <- NA
+
+#replace NA with previous non-NA value
+metro$temp <- na.locf(metro$temp)
+```
+
+Let's plot boxplot of the temperature.
+
+```{r}
+ggplot(metro, aes(x = as.factor(hour), y = temp)) +
+  geom_boxplot()
+```
+
+repetitive monthly bahoivour can be seen.
+
+```{r}
+metro$month <- month(metro$date_time)
+ggplot(metro, aes(x = as.factor(month), y = temp)) +
+  geom_boxplot()
+```
+
+Plot of the column clouds_all
+
+```{r}
+gg_cloud <- ggplot(metro, aes(x = date_time, y = clouds_all)) +
+  geom_line()
+ggplotly(gg_cloud)
+```
+
+Even after scaling, the column clouds_all has not shown any signs of
+seasonal or cyclic behaviour.
+
+Plot of rain_1h
+
+```{r}
+gg_rain <- ggplot(metro, aes(x = date_time, y = rain_1h)) +
+  geom_line()
+
+ggplotly(gg_rain)
+```
+
+show_1h
+
+```{r}
+gg_snow <- ggplot(metro, aes(x = date_time, y = snow_1h)) +
+  geom_line()
+
+ggplotly(gg_snow)
+```
+
+### **Categorical values**
+
+Exploring categorical values. Possible values of the categorical
+columns.
+
+```{r}
+levels(factor(metro$holiday))
+```
+
+```{r}
+levels(factor(metro$weather_main))
+```
+
+```{r}
+levels(factor(metro$weather_description))
+```
+
+```{r}
+table(metro$holiday, metro$weather_main)
+```
+
+```{r}
+ggplot(metro, aes(x = weather_main)) + 
+  geom_bar(position = "dodge") +
+  theme(axis.text.x = element_text(angle = 30))
+```
+
+Easy to notice that the most common weather description is "Clouds" and
+the second by popularity is "Clear".
+
+Stacked bar chart of weather proportions with holidays on x-axis.
+
+```{r}
+ggplot(metro, aes(x = holiday, fill = weather_main)) + 
+  geom_bar(position = "fill") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  ylab("proportion")
+```
+
+Histograms
+
+```{r}
+ggplot(metro, aes(x=traffic_volume))+
+  geom_histogram()
+```
+
+Decomposition
+
+```{r}
+metro_ts <- ts(metro$traffic_volume, frequency = 24)  
+plot(decompose(metro_ts))
+```
+
+### **ACF**
+
+```{r}
+acf(metro$traffic_volume, main = "ACF - Traffic Volume")
+```
+
+ACF exhibits the strong seasonal behavior of traffic volume.
+
+```{r}
+acf(metro$temp, main = "ACF - Temperature")
+```
+
+ACF plot shows high autocorrelation and slight evidence of seasonality
+within temperature component.
+
+```{r}
+acf(metro$clouds_all, main = "ACF - Clouds")
+```
+
+ACF plot shows high autocorrelation within clouds_all column.
+
+```{r}
+acf(metro$rain_1h, main = "Rain_1h")
+```
+
+No autocorrelation.
+
+```{r}
+acf(metro$snow_1h, main = "ACF - Snow 1h")
+```
+
+Can be noticed in some periodic behavior.
+
+## Data pre-processing. Part II
+
+For handling this big interval, let's assume that the data of this
+period is equal to the same values on the same time and date of the
+previous year.
+
+Let's check the length of the time series.
+
+```{r}
+min(metro$date_time)
+max(metro$date_time)
+```
+
+It is better to pre-process all data together. The algorithm is
+following:
+
+1.  From 2012-10-02 09:00:00 to 2013-10-02 09:00:00 the missing values
+    would be imputed by agregation. For numerical values, the mean of
+    the previous 2 values would be calculated and for categorical one
+    the previous one would be assigned.
+2.  For the rest of the data, the values would be impute from historical
+    data available.
+
+```{r}
+period_start <- as.POSIXct("2012-10-02 09:00:00", tz = "UTC")
+period_end <- as.POSIXct("2018-09-30 23:00:00", tz = "UTC")
+
+full_period <- data.frame(
+  date_time = seq(from = period_start, to = period_end, by = "1 hour"))
+
+full_period <- left_join(full_period, metro, by = c("date_time"))
+
+missing_values_range <- full_period %>%
+  filter(date_time >= period_start & date_time <= period_end) %>%
+  summarise_all(~sum(is.na(.)))
+missing_values_range
+```
+
+Impute values for the range
+
+```{r}
+start_time <- as.POSIXct("2012-10-02 09:00:00 UTC")
+end_time <- as.POSIXct("2013-10-02 10:00:00 UTC")
+
+indices_in_range <- which(full_period$date_time >= start_time & full_period$date_time <= end_time)
+
+for (i in indices_in_range) {
+  timestamp <- full_period$date_time[i]
+    for (col in colnames(full_period)[-1]) {
+      
+      if (is.na(full_period[[col]][full_period$date_time == timestamp])){
+        previous_values <- full_period[full_period$date_time < timestamp, col]
+        if (is.numeric(full_period[[col]])) {
+          # Impute numeric values by averaging two previous values
+          filled_value <- mean(tail(previous_values, 2), na.rm = TRUE)
+          full_period[[col]][full_period$date_time == timestamp] <- filled_value
+          
+        } else {
+          # Impute categorical values using the previous value
+          full_period[[col]][full_period$date_time == timestamp] <- tail(previous_values, 1)
+          
+        }
+      }
+    }
+  }
+
+missing_values_range_after <- full_period %>%
+  filter(date_time >= start_time & date_time <= end_time) %>%
+  summarise_all(~sum(is.na(.)))
+
+print(missing_values_range_after)
+
+```
+
+The amount of missing values for the rest of data:
+
+```{r}
+missing_values_range <- full_period %>%
+  summarise_all(~sum(is.na(.)))
+
+print(missing_values_range)
+```
+
+Impute the rest of values by using historical data.
+
+```{r}
+for (i in 1:nrow(full_period)) {
+  timestamp <- full_period$date_time[i]
+
+  if (any(is.na(full_period[full_period$date_time == timestamp, -1]))) {
+    # Get the corresponding timestamp from the previous year
+    previous_year_timestamp <- timestamp - lubridate::years(1)
+
+    # Filter the data from the previous year for the corresponding timestamp
+    previous_year_data <- full_period[full_period$date_time == previous_year_timestamp, -1]
+
+    # impute the missing values with the value from the previous year
+    full_period[full_period$date_time == timestamp, -1] <- previous_year_data
+  }
+}
+
+missing_values_range_after <- full_period %>%
+  summarise_all(~sum(is.na(.)))
+
+print(missing_values_range_after)
+
+rows_with_missing <- full_period[!complete.cases(full_period), ]
+
+rows_with_missing
+```
+
+However, there is still a problem with 29th February.
+
+```{r}
+impute_timestamp <- as.POSIXct("2015-02-28 00:00:00")
+
+# Identify rows with missing values in full_period
+rows_with_missing <- full_period[!complete.cases(full_period), ]
+
+# Iterate over each row with missing values
+for (i in 1:nrow(rows_with_missing)) {
+  timestamp <- rows_with_missing$date_time[i]
+  
+  # Extract hour, minutes, and seconds from the current row
+  impute_time <- format(timestamp, "%H:%M:%S")
+  
+  # Combine the date from impute_timestamp with the time from the current row
+  impute_datetime <- as.POSIXct(paste(as.Date(impute_timestamp), impute_time))
+  
+  # Filter the data from the impute timestamp for the corresponding datetime
+  impute_data <- full_period[full_period$date_time == impute_datetime, -1]
+  
+  # Update the missing values in the current row with imputed values
+  full_period[full_period$date_time == timestamp, -1] <- impute_data
+}
+
+# Verify that missing values have been imputed
+missing_values_after_imputation <- full_period[!complete.cases(full_period), ]
+
+# Print rows with missing values after imputation
+print("Rows with missing values after imputation:")
+print(missing_values_after_imputation)
+```
+
+transform to ts
+
+```{r}
+ts_metro <- zoo(full_period, order.by = full_period$date_time)
+frequency(ts_metro) <- 24
+
+ts_traffic <- ts(full_period$traffic_volume, frequency = 24)
+if (!is.numeric(ts_traffic)) {
+     ts_traffic <- as.numeric(ts_traffic)}
+
+ts_temp <- ts(full_period$temp, frequency = 24)
+if (!is.numeric(ts_temp)) {
+     ts_temp <- as.numeric(ts_temp)}
+```
+
+## Forecasting techniques
+
+### Holt-Winter model
+
+```{r}
+forecast_hw <- hw(ts_traffic, h = 24)
+```
+
+We're interested in checking that there are no correlation of the
+forecast errorsto assess our model betterl. To capture this, we can use
+the ACF function or LjungBox test or examine the histograms for residual
+values. In R there is function checkresidual() that contain all these
+actions in one.
+
+```{r}
+checkresiduals(forecast_hw)
+```
+
+Ideally, for non-zero lag, the ACF bars are within the blue range bars
+shown below. However, it is not true for our model. For the Ljung-Box
+test, as long as the p-value is greater than 0.05, we can say that 95%
+of residuals are independent. In our case, the test shows dependence
+between residuals.
+
+```{r}
+accuracy(forecast_hw)
+```
+
+### ARIMA
+
+Firstly, we need to determine the p and q values by using PACF and ACF.
+
+```{r}
+acf(ts_traffic)
+
+pacf(ts_traffic)
+```
+
+The p values for the AR(p) model is then determined by when the PACF
+drops to below significant threshold (blue area) for the first time.
+
+ACF can be used for determining the q value. It is typically selected as
+the first lagged value of which the ACF drops to nearly 0 for the first
+time.
+
+From the graphs, we can notice that p value should be 27 and q values
+also should be 6. So we can use 3 models: ARMA(27, 0), ARMA(27, 6) and
+ARMA(0, 6).
+
+```{r}
+# Fit ARIMA model
+#arima_27_0 <- arima(ts_traffic, order = c(27, 0, 0))
+#forecast_arima_27_0 <- forecast(arima_model, h = 12)
+#accuracy(forecast_arima_27_0)
+```
+
+## Linear regression model
+
+The target variable exhibits no trend but strong daily periodicity. This
+is why linear regression is not the best model to use.
+
+## Cointegration analysis
+
+### Augmented Dickey-Fuller Test
+
+Based on done EDA, the traffic volume and temperature are seemed to be
+cointegrated.
+
+First thing to do is to test whether individual series are integrated.
+ADF test would be used for this.
+
+```{r}
+adf_traffic_drift <- ur.df(ts_traffic, 
+      selectlags = "AIC", 
+      type = "drift")
+summary(adf_traffic_drift)
+```
+
+The null hypothesis is the presence of a unit root. Thus, the augmented
+Dickey-Fuller statistics are -76.5465 and 2929.682 and do not lie inside
+the acceptance region at 1%, 5%, and 10%. p-value \< 0.05. Therefore, we
+reject the presence of unit root (non-stationarity).
+
+```{r}
+adf_traffic_trend <- ur.df(ts_traffic, 
+      selectlags = "AIC", 
+      type = "trend")
+summary(adf_traffic_trend)
+```
+
+The augmented Dickey-Fuller statistics are -76.5543, 1953.518, 2910.278,
+and do not lie inside the acceptance region at 1%, 5%, and 10%. p-value
+\< 0.05. Therefore, we reject the presence of unit root
+(non-stationarity).
+
+```{r}
+adf_traffic_none <- ur.df(ts_traffic, 
+      selectlags = "AIC", 
+      type = "none")
+summary(adf_traffic_none)
+```
+
+The augmented Dickey-Fuller statistic is -37.3453, and does not lie
+inside the acceptance region at 1%, 5%, and 10%. p-value \< 0.05.
+Therefore, we reject the presence of unit root (non-stationarity).
+
+As we can see, the values of test statistics in all three cases are
+significantly different from critical values. It means that data is
+stationary.
+
+Similar evidence is provided for the temperature.
+
+```{r}
+adf_temp_drift <- ur.df(ts_temp, 
+      selectlags = "AIC", 
+      type = "drift")
+summary(adf_temp_drift)
+```
+
+The augmented Dickey-Fuller statistic is -14.3326, 102.7121, and do not
+lie inside the acceptance region at 1%, 5%, and 10%. p-value \< 0.05.
+Therefore, we reject the presence of unit root (non-stationarity).
+
+```{r}
+adf_temp_trend <- ur.df(ts_temp, 
+      selectlags = "AIC", 
+      type = "trend")
+summary(adf_temp_trend)
+```
+
+The augmented Dickey-Fuller statistic is -14.5137, 70.2169, 105.3253,
+and do not lie inside the acceptance region at 1%, 5%, and 10%. p-value
+\< 0.05. Therefore, we reject the presence of unit root
+(non-stationarity).
+
+```{r}
+adf_temp_none <- ur.df(ts_temp, 
+      selectlags = "AIC", 
+      type = "none")
+summary(adf_temp_none)
+```
+
+The augmented Dickey-Fuller statistic is -12.5531, and do not lie inside
+the acceptance region at 1%, 5%, and 10%. p-value \< 0.05. Therefore, we
+reject the presence of unit root (non-stationarity).
+
+### EG-ADF test
+
+Estimate long run regression with constant, by using the lm command.
+
+```{r}
+# estimate first-stage regression of EG-ADF test
+reg_traffic <- lm(ts_traffic ~ ts_temp)
+reg_traffic
+```
+
+The residuals are primarily interest. They would suggest that the
+variables are cointegrated if the residuals are stationary.
+
+```{r}
+# compute the residuals
+eg_adf_res <- resid(reg_traffic)
+
+# compute the ADF test statistic
+eg_adf_stat <- ur.df(eg_adf_res, type = "none", selectlags = "AIC")
+summary(eg_adf_stat)
+```
+
+The null hypothesis is no cointegration. The test statistic -76.9268 is
+smaller than the 1% critical value. Thus, the null hypothesis of no
+cointegration can be rejected at the 1% level.
+
+### Phillips-Ouliaris test
+
+```{r}
+po.test(cbind(ts_traffic, ts_temp))
+```
+
+Also Philips-Ouliaris test has confirmed the series are contegrated at
+the level 1%. It justifies the use of a regression model.
+
+Let's construct error correction model.
+
+```{r}
+traffic_d <- diff(ts_traffic)[-1]
+temp_d <- diff(ts_temp)[-1]
+error <- eg_adf_res[-1:-2]
+traffic_d_1 <- diff(ts_traffic)[-(length(ts_traffic) - 1)]
+temp_d_1 <- diff(ts_temp[-(length(ts_temp) - 1)])
+```
+
+Estimate the error correction model with a linear regression model:
+
+```{r}
+error_corr_m <- lm(traffic_d ~ error + traffic_d_1 + temp_d_1)
+summary(error_corr_m)
+```
+
+Error term is highly significant. **Conslusion**: traffic volume and
+temperature are cointegrated variables.
+
+## Multivariate time series analysis using VAR
+
+Let's build vector autoregresive model using var function.
+
+```{r}
+ts_traffic_temp<-ts.union(diff(ts_traffic), diff(ts_temp))
+VAR_traffic <- VAR(y = ts_traffic_temp, p = 2)
+#summary(VAR_traffic)
+```
+
+Unfornatly, the error is shown, that cannot allocate vector of size 20.6
+Gb.
+
+## Saving pre-processed data for futher work
+
+Let's save pre-proccessed dataframe for further using it during
+implementation of RNN and LSTM network at Python.
+
+For no habing a problem with date_time column, it is better to save it
+as a character. Because during saving in csv format that date like
+03/10/2012 00:00 would be saved as 03/10/2012.
+
+```{r}
+full_period$date_time <- format(full_period$date_time, "%Y-%m-%d %H:%M:%S")
+write.csv(full_period, "D:\\University\\time_series\\Project\\clean_data.csv", row.names=TRUE)
+```
