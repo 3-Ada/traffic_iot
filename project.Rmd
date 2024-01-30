@@ -66,18 +66,18 @@ head(metro_raw)
 **Data cleaning** steps:
 
 1.  Check the tidiness of the data (observations on rows and variables
-    on the columns)
+    on the columns).
 
-2.  Remove duplicates
+2.  Remove duplicates.
 
-3.  Each observation should have a unique ID.,
+3.  Each observation should have a unique ID.
 
 4.  Check homogeneity (observation in the same column should have the
-    same format)
+    same format).
 
 5.  Check data types
 
-    1.  **Tidiness**. As we can see the dataset is ***tidy***.
+    1.  **Tidiness**. As we can see, the dataset is ***tidy***.
     2.  Let's check for **duplicates**:
 
 ```{r}
@@ -120,7 +120,7 @@ metro
 
 **Gertrude Mary Cox**
 
-So first stuff to do is to check if we have any missing values.
+So, the first thing to do is check for any missing values.
 
 ```{r}
 anyNA(metro)
@@ -147,11 +147,9 @@ should be checked.
 anyDuplicated(metro$date_time)
 ```
 
-To solve this issue, the decision is to delete duplicates. Also another
-method was each duplicated timestamp change to average of previous and
-next value, repeat it until there are no more duplicates. However, due
-to this method the complexity and dimensionality of data would increase
-and also it would be chalenging to make interval between data points
+To solve this issue, the decision is to delete duplicates. Also, another
+method was each duplicated timestamp changed to the average of the previous and next value, repeated until there were no more duplicates. However, due to this method, the complexity and dimensionality of data would increase
+and also it would be challenging to make interval between data points
 equal in this case.
 
 ```{r}
@@ -184,14 +182,14 @@ max_diff_index <- which.max(diff(metro$date_time))
 metro$date_time[c(max_diff_index, max_diff_index + 1)]
 ```
 
-The periodic behavior can be seen in the previous graph. A better
+The periodic behaviour can be seen in the previous graph. A better
 understanding of the data and its patterns can help us understand
 possible solutions to the given problem. Consequently, let's explore the
 data analysis part.
 
 ## Exploring Data Analysis
 
-*One picture is worth of a thousand words*
+*One picture is worth a thousand words*
 
 ```{r}
 summary(metro)
@@ -199,9 +197,9 @@ summary(metro)
 
 ### **Numerical values**
 
-The dataset has too much data to be displayed in understandable way. Due
+The dataset has too much data to be displayed in an understandable way. Due
 to this fact, the library plotly has been used. That package helps to
-create interactive plots, that can be zoom in.
+create interactive plots that can be zoomed in.
 
 ```{r}
 gg_traffic <- ggplot(metro, aes(x = date_time, y = traffic_volume)) +
@@ -211,7 +209,7 @@ ggplotly(gg_traffic)
 ```
 
 After zooming in and seeing the first days, the existence of seasonality
-can be assumed. There is no trend. Also the dataset has period of
+can be assumed. There is no trend. Also, the dataset has a period of
 unrecorded data.
 
 ```{r}
@@ -220,7 +218,7 @@ unrecorded data.
 ```
 
 According to the observations, the repetitive pattern that occurred in
-the data has daily nature. Let's create a column with hour.
+the data has a daily nature. Let's create a column with the hour.
 
 ```{r}
 metro$hour <- hour(metro$date_time)
@@ -230,14 +228,14 @@ ggplot(metro, aes(x=traffic_volume))+
   facet_wrap(~ hour)
 ```
 
-By using boxplot arranged by hours, the daily pattern can be seen.
+The daily pattern can be seen using a boxplot arranged by hours.
 
 ```{r}
 ggplot(metro, aes(x = as.factor(hour), y = traffic_volume)) +
   geom_boxplot()
 ```
 
-Let\`s create a plot for temperature.
+Let`s create a plot for temperature.
 
 ```{r}
 gg_temp <- ggplot(metro, aes(x = date_time, y = temp)) +
@@ -246,24 +244,24 @@ ggplotly(gg_temp)
 ```
 
 For temperature, the situation is the same. There is no trend, but there
-is cycle behaviour. Also it easy to see two outliers. It's better to
+is cycle behaviour. Also, it is easy to see two outliers. It's better to
 deal with them now.
 
 ```{r}
 metro$temp[metro$temp < -200] <- NA
 
-#replace NA with previous non-NA value
+#replace NA with the previous non-NA value
 metro$temp <- na.locf(metro$temp)
 ```
 
-Let's plot boxplot of the temperature.
+Let's plot a boxplot of the temperature.
 
 ```{r}
 ggplot(metro, aes(x = as.factor(hour), y = temp)) +
   geom_boxplot()
 ```
 
-repetitive monthly bahoivour can be seen.
+Repetitive monthly behaviour can be seen.
 
 ```{r}
 metro$month <- month(metro$date_time)
@@ -327,10 +325,10 @@ ggplot(metro, aes(x = weather_main)) +
   theme(axis.text.x = element_text(angle = 30))
 ```
 
-Easy to notice that the most common weather description is "Clouds" and
-the second by popularity is "Clear".
+Easy to notice that the most common weather description is "Clouds".
+The second most popular is "Clear".
 
-Stacked bar chart of weather proportions with holidays on x-axis.
+Stacked bar chart of weather proportions with holidays on the x-axis.
 
 ```{r}
 ggplot(metro, aes(x = holiday, fill = weather_main)) + 
@@ -359,20 +357,20 @@ plot(decompose(metro_ts))
 acf(metro$traffic_volume, main = "ACF - Traffic Volume")
 ```
 
-ACF exhibits the strong seasonal behavior of traffic volume.
+ACF exhibits the strong seasonal behaviour of traffic volume.
 
 ```{r}
 acf(metro$temp, main = "ACF - Temperature")
 ```
 
 ACF plot shows high autocorrelation and slight evidence of seasonality
-within temperature component.
+within the temperature component.
 
 ```{r}
 acf(metro$clouds_all, main = "ACF - Clouds")
 ```
 
-ACF plot shows high autocorrelation within clouds_all column.
+ACF plot shows high autocorrelation within the clouds_all column.
 
 ```{r}
 acf(metro$rain_1h, main = "Rain_1h")
@@ -384,7 +382,7 @@ No autocorrelation.
 acf(metro$snow_1h, main = "ACF - Snow 1h")
 ```
 
-Can be noticed in some periodic behavior.
+It can be noticed in some periodic behaviour.
 
 ## Data pre-processing. Part II
 
@@ -402,12 +400,10 @@ max(metro$date_time)
 It is better to pre-process all data together. The algorithm is
 following:
 
-1.  From 2012-10-02 09:00:00 to 2013-10-02 09:00:00 the missing values
-    would be imputed by agregation. For numerical values, the mean of
-    the previous 2 values would be calculated and for categorical one
-    the previous one would be assigned.
-2.  For the rest of the data, the values would be impute from historical
-    data available.
+1.  From 2012-10-02 09:00:00 to 2013-10-02 09:00:00, the missing values
+    would be imputed by aggregation. The mean of the previous two values would be calculated 
+    for numerical values, and for categorical ones, the previous one would be assigned.
+2.  the values would be imputed from historical data available for the rest of the data.
 
 ```{r}
 period_start <- as.POSIXct("2012-10-02 09:00:00", tz = "UTC")
@@ -424,7 +420,7 @@ missing_values_range <- full_period %>%
 missing_values_range
 ```
 
-Impute values for the range
+Impute values for the range 2012-10-02 09:00:00 to 2013-10-02 09:00:00
 
 ```{r}
 start_time <- as.POSIXct("2012-10-02 09:00:00 UTC")
@@ -460,7 +456,7 @@ print(missing_values_range_after)
 
 ```
 
-The amount of missing values for the rest of data:
+The amount of missing values for the rest of the data:
 
 ```{r}
 missing_values_range <- full_period %>%
@@ -469,7 +465,7 @@ missing_values_range <- full_period %>%
 print(missing_values_range)
 ```
 
-Impute the rest of values by using historical data.
+Impute the rest of the values by using historical data. For example, if the data is missing at the time point 2014-10-02 09:00:00, the values from one year before at the same date and time (2013-10-02 09:00:00) would be assigned.
 
 ```{r}
 for (i in 1:nrow(full_period)) {
@@ -530,7 +526,7 @@ print("Rows with missing values after imputation:")
 print(missing_values_after_imputation)
 ```
 
-transform to ts
+Transform to ts
 
 ```{r}
 ts_metro <- zoo(full_period, order.by = full_period$date_time)
@@ -553,10 +549,10 @@ if (!is.numeric(ts_temp)) {
 forecast_hw <- hw(ts_traffic, h = 24)
 ```
 
-We're interested in checking that there are no correlation of the
-forecast errorsto assess our model betterl. To capture this, we can use
-the ACF function or LjungBox test or examine the histograms for residual
-values. In R there is function checkresidual() that contain all these
+We're interested in checking that there is no correlation between the
+forecast errors to assess our model better. We can use
+the ACF function or LjungBox test to capture this or examine the histograms for residual
+values. In R, there is a function checkresidual() that contains all these
 actions in one.
 
 ```{r}
@@ -564,7 +560,7 @@ checkresiduals(forecast_hw)
 ```
 
 Ideally, for non-zero lag, the ACF bars are within the blue range bars
-shown below. However, it is not true for our model. For the Ljung-Box
+shown below. However, this is not true for our model. For the Ljung-Box
 test, as long as the p-value is greater than 0.05, we can say that 95%
 of residuals are independent. In our case, the test shows dependence
 between residuals.
@@ -583,15 +579,15 @@ acf(ts_traffic)
 pacf(ts_traffic)
 ```
 
-The p values for the AR(p) model is then determined by when the PACF
-drops to below significant threshold (blue area) for the first time.
+The p values for the AR(p) model are then determined by when the PACF
+drops to below a significant threshold (blue area) for the first time.
 
-ACF can be used for determining the q value. It is typically selected as
+ACF can be used to determine the q value. It is typically selected as
 the first lagged value of which the ACF drops to nearly 0 for the first
 time.
 
-From the graphs, we can notice that p value should be 27 and q values
-also should be 6. So we can use 3 models: ARMA(27, 0), ARMA(27, 6) and
+From the graphs, we can notice that the p value should be 27, and the q value
+should also be 6. So we can use 3 models: ARMA(27, 0), ARMA(27, 6) and
 ARMA(0, 6).
 
 ```{r}
@@ -610,10 +606,10 @@ is why linear regression is not the best model to use.
 
 ### Augmented Dickey-Fuller Test
 
-Based on done EDA, the traffic volume and temperature are seemed to be
+Based on done EDA, the traffic volume and temperature have seemed to be
 cointegrated.
 
-First thing to do is to test whether individual series are integrated.
+The first thing to do is to test whether individual series are integrated.
 ADF test would be used for this.
 
 ```{r}
@@ -625,7 +621,7 @@ summary(adf_traffic_drift)
 
 The null hypothesis is the presence of a unit root. Thus, the augmented
 Dickey-Fuller statistics are -76.5465 and 2929.682 and do not lie inside
-the acceptance region at 1%, 5%, and 10%. p-value \< 0.05. Therefore, we
+the acceptance region at 1%, 5%, and 10%. p-value < 0.05. Therefore, we
 reject the presence of unit root (non-stationarity).
 
 ```{r}
@@ -637,7 +633,7 @@ summary(adf_traffic_trend)
 
 The augmented Dickey-Fuller statistics are -76.5543, 1953.518, 2910.278,
 and do not lie inside the acceptance region at 1%, 5%, and 10%. p-value
-\< 0.05. Therefore, we reject the presence of unit root
+< 0.05. Therefore, we reject the presence of unit root
 (non-stationarity).
 
 ```{r}
@@ -647,7 +643,7 @@ adf_traffic_none <- ur.df(ts_traffic,
 summary(adf_traffic_none)
 ```
 
-The augmented Dickey-Fuller statistic is -37.3453, and does not lie
+The augmented Dickey-Fuller statistic is -37.3453 and does not lie
 inside the acceptance region at 1%, 5%, and 10%. p-value \< 0.05.
 Therefore, we reject the presence of unit root (non-stationarity).
 
@@ -664,7 +660,7 @@ adf_temp_drift <- ur.df(ts_temp,
 summary(adf_temp_drift)
 ```
 
-The augmented Dickey-Fuller statistic is -14.3326, 102.7121, and do not
+The augmented Dickey-Fuller statistic is -14.3326 and 102.7121, and it does not
 lie inside the acceptance region at 1%, 5%, and 10%. p-value \< 0.05.
 Therefore, we reject the presence of unit root (non-stationarity).
 
@@ -675,8 +671,8 @@ adf_temp_trend <- ur.df(ts_temp,
 summary(adf_temp_trend)
 ```
 
-The augmented Dickey-Fuller statistic is -14.5137, 70.2169, 105.3253,
-and do not lie inside the acceptance region at 1%, 5%, and 10%. p-value
+The augmented Dickey-Fuller statistics are -14.5137, 70.2169, and 105.3253,
+and they do not lie inside the acceptance region at 1%, 5%, and 10%. p-value
 \< 0.05. Therefore, we reject the presence of unit root
 (non-stationarity).
 
@@ -687,13 +683,13 @@ adf_temp_none <- ur.df(ts_temp,
 summary(adf_temp_none)
 ```
 
-The augmented Dickey-Fuller statistic is -12.5531, and do not lie inside
+The augmented Dickey-Fuller statistic is -12.5531 and does not lie inside
 the acceptance region at 1%, 5%, and 10%. p-value \< 0.05. Therefore, we
 reject the presence of unit root (non-stationarity).
 
 ### EG-ADF test
 
-Estimate long run regression with constant, by using the lm command.
+Estimate long-run regression with constant by using the lm command.
 
 ```{r}
 # estimate first-stage regression of EG-ADF test
@@ -723,10 +719,10 @@ cointegration can be rejected at the 1% level.
 po.test(cbind(ts_traffic, ts_temp))
 ```
 
-Also Philips-Ouliaris test has confirmed the series are contegrated at
-the level 1%. It justifies the use of a regression model.
+Also, the Philips-Ouliaris test has confirmed that the series are cointegrated at
+the level of 1%. It justifies the use of a regression model.
 
-Let's construct error correction model.
+Let's construct an error correction model.
 
 ```{r}
 traffic_d <- diff(ts_traffic)[-1]
@@ -743,12 +739,12 @@ error_corr_m <- lm(traffic_d ~ error + traffic_d_1 + temp_d_1)
 summary(error_corr_m)
 ```
 
-Error term is highly significant. **Conslusion**: traffic volume and
+The error term is highly significant. **Conclusion**: traffic volume and
 temperature are cointegrated variables.
 
 ## Multivariate time series analysis using VAR
 
-Let's build vector autoregresive model using var function.
+Let's build a vector autoregressive model using the var function.
 
 ```{r}
 ts_traffic_temp<-ts.union(diff(ts_traffic), diff(ts_temp))
@@ -756,16 +752,15 @@ VAR_traffic <- VAR(y = ts_traffic_temp, p = 2)
 #summary(VAR_traffic)
 ```
 
-Unfornatly, the error is shown, that cannot allocate vector of size 20.6
+Unfortunately, the error shows that we cannot allocate a vector of size 20.6
 Gb.
 
-## Saving pre-processed data for futher work
+## Saving pre-processed data for further work
 
-Let's save pre-proccessed dataframe for further using it during
-implementation of RNN and LSTM network at Python.
+Let's save the pre-processed data frame for further use during
+implementation of RNN and LSTM network in Python.
 
-For no habing a problem with date_time column, it is better to save it
-as a character. Because during saving in csv format that date like
+Saving it as a character is better for not having a problem with the date_time column. Because during saving in CSV format, data like
 03/10/2012 00:00 would be saved as 03/10/2012.
 
 ```{r}
